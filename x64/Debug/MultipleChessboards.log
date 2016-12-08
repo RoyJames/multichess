@@ -1,0 +1,17 @@
+﻿ucrtd.lib(ucrtbased.dll) : error LNK2005: _invalid_parameter already defined in libucrtd.lib(invalid_parameter.obj)
+ucrtd.lib(ucrtbased.dll) : error LNK2005: atoi already defined in libucrtd.lib(atox.obj)
+ucrtd.lib(ucrtbased.dll) : error LNK2005: __stdio_common_vsprintf already defined in libucrtd.lib(output.obj)
+ucrtd.lib(ucrtbased.dll) : error LNK2005: _CrtDbgReportW already defined in libucrtd.lib(dbgrpt.obj)
+libucrtd.lib(argv_data.obj) : error LNK2005: __p___argc already defined in ucrtd.lib(ucrtbased.dll)
+libucrtd.lib(argv_data.obj) : error LNK2005: __p___argv already defined in ucrtd.lib(ucrtbased.dll)
+libucrtd.lib(environment_initialization.obj) : error LNK2005: _get_initial_narrow_environment already defined in ucrtd.lib(ucrtbased.dll)
+libucrtd.lib(environment_initialization.obj) : error LNK2005: _initialize_narrow_environment already defined in ucrtd.lib(ucrtbased.dll)
+main.obj : error LNK2019: unresolved external symbol mxGetM referenced in function main
+main.obj : error LNK2019: unresolved external symbol mxGetCell_730 referenced in function main
+main.obj : error LNK2019: unresolved external symbol mxGetPr referenced in function main
+main.obj : error LNK2019: unresolved external symbol mxGetN referenced in function main
+main.obj : error LNK2019: unresolved external symbol mxGetField_730 referenced in function main
+main.obj : error LNK2019: unresolved external symbol engEvalString referenced in function main
+main.obj : error LNK2019: unresolved external symbol engOpen referenced in function main
+main.obj : error LNK2019: unresolved external symbol engGetVariable referenced in function main
+D:\codes\MultipleChessboards\x64\Debug\MultipleChessboards.exe : fatal error LNK1120: 8 unresolved externals

@@ -1,0 +1,25 @@
+﻿  main.cpp
+main.cpp(24): warning C4005: 'MAX': macro redefinition
+  D:\opencv\build\include\opencv2/core/types_c.h(291): note: see previous definition of 'MAX'
+main.cpp(25): warning C4005: 'MIN': macro redefinition
+  D:\opencv\build\include\opencv2/core/types_c.h(287): note: see previous definition of 'MIN'
+main.cpp(26): warning C4005: 'MAX_LEN': macro redefinition
+  d:\codes\multiplechessboards\multiplechessboards\Optimizer.h(11): note: see previous definition of 'MAX_LEN'
+main.cpp(113): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+main.cpp(114): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+main.cpp(176): warning C4244: '-=': conversion from 'double' to 'int', possible loss of data
+main.cpp(177): warning C4244: '-=': conversion from 'double' to 'int', possible loss of data
+main.cpp(178): warning C4244: '*=': conversion from 'double' to 'int', possible loss of data
+main.cpp(179): warning C4244: '*=': conversion from 'double' to 'int', possible loss of data
+main.cpp(185): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+main.cpp(212): warning C4244: '=': conversion from 'float' to 'int', possible loss of data
+main.cpp(213): warning C4244: '=': conversion from 'float' to 'int', possible loss of data
+main.cpp(214): warning C4244: '=': conversion from 'float' to 'int', possible loss of data
+main.cpp(215): warning C4244: '=': conversion from 'float' to 'int', possible loss of data
+  Generating code
+  7 of 620 functions ( 1.1%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    14 functions had inline decision re-evaluated but remain unchanged
+  Finished generating code
+  MultipleChessboards.vcxproj -> D:\codes\MultipleChessboards\x64\Release\MultipleChessboards.exe
+  MultipleChessboards.vcxproj -> D:\codes\MultipleChessboards\x64\Release\MultipleChessboards.pdb (Full PDB)
