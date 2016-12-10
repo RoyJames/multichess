@@ -13,13 +13,13 @@
 
 #include <time.h>  
 
-
 using namespace cv;
 using namespace std;
 
-#define SOLVECHESS 0
+#define SOLVECHESS 1
 #define SOLVERICOH 0
 #define UNDISTORT 0
+#define DETECT_CORNER 0
 
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
@@ -148,14 +148,39 @@ int main(int argc, char *argv[])
 		patternSizes.push_back(Size(w, h));
 	}
 	fclose(fin);
-
-	FileStorage fs_corners("corners.yml", FileStorage::WRITE);
-
 	Optimizer *optimizer = new Optimizer(n_boards, cameraMatrix);
-	vector<Rect> feasible_ROI(n_boards);
+	optimizer->board_sizes = patternSizes;
+
+#if UNDISTORT
+	distCoeffs.at<double>(0) = -0.37077668666130514;
+	distCoeffs.at<double>(1) = 8.0453921321123243;
+	distCoeffs.at<double>(4) = 0.11371622504317971;
+	FILE *fin;
+	fin = fopen(imgpath, "r");
+	for (int i_view = 0; i_view < 11; i_view++)
+	{
+		char picname[MAX_LEN];
+		sprintf(picname, "picture %d", i_view);
+		fscanf(fin, "%s", &picname);
+		cout << "reading image " << picname << endl;
+		Mat view = imread(picname);
+		Mat rectified;
+		undistort(view, rectified, cameraMatrix, distCoeffs);
+		sprintf(picname, "undistort%d.png", i_view);
+		cout << "writing " << picname << endl;
+		//imshow("preview", view);
+		imwrite(picname, rectified);
+		cout << "undistorted view " << i_view << ":" << endl;
+	}
+	exit(1);
+#endif
+
 	fin = fopen(imgpath, "r");
 	int n_views = -1;
 	fscanf(fin, "%d", &n_views);
+#if DETECT_CORNER
+	FileStorage fs_corners("corners.yml", FileStorage::WRITE);
+	vector<Rect> feasible_ROI(n_boards);
 	for (int i_view = 0; i_view < n_views; i_view++)
 	{
 		char picname[MAX_LEN];
@@ -224,156 +249,33 @@ int main(int argc, char *argv[])
 		imwrite(picname, view);
 	}
 	fs_corners.release();
-	exit(1);
-
-	/*
-	Engine *ep; 
-	if (!(ep = engOpen(NULL))) 
-	{
-		cout << "Can't start Matlab engine!" << endl;
-		return 1;
-	}
-	engEvalString(ep, "clear");
-	cout << "engine started!" << endl;
-	engEvalString(ep, "addpath('D:\\codes\\libcbdetect')");
-	char command[MAX_LEN];
-	sprintf(command, "load('%s');", matname);
-	engEvalString(ep, command);
-
-	mxArray *chessboards = engGetVariable(ep, "chessboards");
-	mxArray *corners = engGetVariable(ep, "corners");
-	mxArray *matching = engGetVariable(ep, "matching");
-	double *matching_table = mxGetPr(matching);
-
-	int n = mxGetN(chessboards);
-	cout << "Total picture count: " << n << endl;
-	*/
-	// we have only one camera with known intrinsics
-
-
-#if UNDISTORT
-	distCoeffs.at<double>(0) = -0.37077668666130514;
-	distCoeffs.at<double>(1) = 8.0453921321123243;
-	distCoeffs.at<double>(4) = 0.11371622504317971;
-	FILE *fin;
-	fin = fopen(imgpath, "r");	
-	for (int i_view = 0; i_view < 11; i_view++)
-	{
-		char picname[MAX_LEN];
-		sprintf(picname, "picture %d", i_view);
-		fscanf(fin, "%s", &picname);
-		cout << "reading image " << picname << endl;
-		Mat view = imread(picname);
-		Mat rectified;
-		undistort(view, rectified, cameraMatrix, distCoeffs);
-		sprintf(picname, "undistort%d.png", i_view);
-		cout << "writing " << picname << endl;
-		//imshow("preview", view);
-		imwrite(picname, rectified);
-		cout << "undistorted view " << i_view << ":" << endl;
-	}
-	exit(1);
-#endif
-	/*
-	vector<vector<Point3d> > camera_buffer;
-	vector<vector<Mat> > camera_extrinsics;
-
-	vector<vector<Mat> > tvecs_all;
-	vector<vector<Mat> > rvecs_all;
-	vector<vector<vector<Point2d> > > imagePoints_all;
-	vector<vector<vector<Point3d> > > objectPoints_all;
-	vector<vector<Size> > boardsizes_all;
-
-	Optimizer *optimizer = new Optimizer(n_boards, cameraMatrix);
-	int *board_freq_count = new int[n_boards];
-	memset(board_freq_count, 0, sizeof(int)*n_boards);
-	for (int i_view = 0; i_view < n; i_view++)
+#else
+	FileStorage fs_corners("corners.yml", FileStorage::READ);
+	for (int i_view = 0; i_view < n_views; i_view++)
 	{
 		CamView current_view;
-		mxArray *cur_boards = mxGetCell(chessboards, (mwIndex)i_view);
-		mxArray *cur_corners = mxGetCell(corners, (mwIndex)i_view);
-		mxArray *point_coords = mxGetField(cur_corners, 0, "p");
-		double *coords_table = mxGetPr(point_coords);
-		int table_offset = mxGetM(point_coords);
-		//cout << "offset is " << table_offset << endl;
-
-		// decode chessboard 3-D subpixel precision coordinates
-		int cur_n_board = mxGetN(cur_boards);
-		current_view.board_index = new int[n_boards];
-		for (int i_board = 0; i_board < n_boards; i_board++) current_view.board_index[i_board] = -1;
-		vector<Point3d> camera_vecs;	
-		vector<Mat> pic_extrinsics;
-
-		vector<Mat> tvecs_pic;
-		vector<Mat> rvecs_pic;
-		vector<Size> boardsizes_pic;
-
-		for (int i_board = 0; i_board < cur_n_board; i_board++)
+		/*
+		char picname[MAX_LEN];
+		fscanf(fin, "%s", &picname);
+		Mat view = imread(picname);
+		*/
+		for (int i_board = 0; i_board < n_boards; i_board++)
 		{
-			vector<Point2d> imagePoints;
-			vector<Point3d> objectPoints;
-
-			int index = roundl(matching_table[i_view + i_board * n]) - 1;
-			if (index >= 0)
-			{
-				current_view.board_index[index] = i_board;
-				board_freq_count[index]++;
-			}
-
-			mxArray *board_i = mxGetCell(cur_boards, (mwIndex)i_board);
-			int row = mxGetM(board_i);
-			int col = mxGetN(board_i);
-			double *board_ids = mxGetPr(board_i);
-			//cout << "dimension is " << row << " x " << col << endl;
-			//cout << "board " << i_board << " in picture " << i << " has " << row << " rows and " << col << " columns of inner corners" << endl;
-			for (int r_id = 0; r_id < row; r_id++)
-			{
-				for (int c_id = 0; c_id < col; c_id++)
-				{
-					int index = r_id + c_id * row;	// this is special for Matlab convention
-					int point_id = roundl(board_ids[index]) - 1;	// minus 1 due to 0-start in C++
-					double x = coords_table[point_id];
-					double y = coords_table[point_id + table_offset];
-					imagePoints.push_back(Point2d(x, y));
-				}
-			}
-			//int scaler = row > col ? row : col;	// chessboard_size corresponds to the lengthy edge of your chessboard
-			//objectPoints = generateChessboard3d(row, col, chessboard_size / (scaler + 1));
-			objectPoints = generateChessboard3d(row, col, chessboard_size);
-			current_view.ObjectPoints.push_back(objectPoints);
-			current_view.ImagePoints.push_back(imagePoints);
-
-			boardsizes_pic.push_back(Size(row, col));
-			
-			// solve extrinsic camera parameters of this board in this picture
-			Mat rvec(3, 1, CV_64F);
-			Mat tvec(3, 1, CV_64F);			
-			solvePnP(objectPoints, imagePoints, cameraMatrix, distCoeffs, rvec, tvec);
-			// compute the camera coordinate relative to this chessboard and push to stack
-			Mat R;
-			Rodrigues(rvec, R); // R is 3x3
-
-			Mat RT, RT_full;
-			hconcat(R, tvec, RT);
-			Mat bottom = Mat::zeros(1, 4, CV_64F);
-			bottom.at<double>(0, 3) = 1;
-			vconcat(RT, bottom, RT_full);
-			current_view.extrinsic_mat.push_back(RT_full);
-			current_view.board_sizes.push_back(Size(row, col));
+			char store_name[MAX_LEN];
+			sprintf(store_name, "view%dboard%d", i_view, i_board);
+			vector<Point2d> temp;
+			fs_corners[store_name] >> temp;
+			current_view.ImagePoints.push_back(temp);
+			current_view.ObjectPoints.push_back(
+				generateChessboard3d(patternSizes[i_board].height, 
+					patternSizes[i_board].width, chessboard_size));
 		}
 		optimizer->camera_views.push_back(current_view);
-		//if (i_view >= 8) break;
 	}
-	int max_freq = 0;
-	for (int i = 0; i < n_boards; i++)
-	{
-		if (max_freq < board_freq_count[i])
-		{
-			max_freq = board_freq_count[i];
-			optimizer->main_board = i;
-		}
-	}
-	*/
+	fs_corners.release();
+#endif
+	fclose(fin);
+
 #if SOLVECHESS
 	optimizer->optimize(500);
 	optimizer->visualize(imgpath);
@@ -462,50 +364,6 @@ int main(int argc, char *argv[])
 	}
 	RicohLocator->optimize(1000);
 #endif
-
-
-
-	// Now we can start calculating transformations and errors
-	/*	
-	ofstream oFile;
-	oFile.open("PrecisionTestResultsForMultiple.csv", ios::app | ios::out);
-
-	oFile << matname << endl;
-	oFile << "source,";
-	FILE *fin;
-	fin = fopen(imgpath, "r");
-	vector<vector<double> > reprojErrors_all;
-	int n_views = optimizer->camera_views.size();
-	for (int i_view = 0; i_view < n_views; i_view++)
-	{
-		char picname[MAX_LEN];
-		sprintf(picname, "picture %d", i_view);
-		oFile << picname << ",";
-		fscanf(fin, "%s", &picname);
-		cout << "reading image " << picname << endl;
-		Mat view = imread(picname);
-		vector<double> reprojErrors_pic;
-		int n_boards = boardsizes_all[i].size();
-		for (int j = 0; j < n_boards; j++)
-		{
-			{
-				Mat reprojMat, reprojTvec, reprojRvec;
-				gemm(solutions_all[i], camera_extrinsics[i + 1][j], 1, NULL, 0, reprojMat);
-				Rodrigues(reprojMat(Rect(0, 0, 3, 3)), reprojRvec);
-				reprojTvec = reprojMat(Rect(3, 0, 1, 3));
-				reprojError = computeReprojectionErrors(objectPoints_all[i + 1][j], imagePoints_all[i][j],
-					reprojRvec, reprojTvec, cameraMatrix, distCoeffs, reprojectedPoints);
-			}
-			reprojErrors_pic.push_back(reprojError);
-			drawChessboardCorners(view, boardsizes_all[i][j], reprojectedPoints, true);
-		}
-		sprintf(picname, "optimized%d.png", i);
-		imwrite(picname, view);
-		reprojErrors_all.push_back(reprojErrors_pic);
-	}
-	fclose(fin);
-	fs.release();
-	*/
 
 	return 0;
 }

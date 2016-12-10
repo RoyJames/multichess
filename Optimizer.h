@@ -17,20 +17,18 @@ using namespace std;
 
 struct CamView
 {
-	int *board_index;	// index table for board in vectors under this view
 	vector<vector<Point2d> > ImagePoints;
 	vector<vector<Point3d> > ObjectPoints;
-	vector<Size> board_sizes;
 	vector<Mat> extrinsic_mat;
 	Mat main_extrinsic_mat;		// extrinsic matrix of the main board
-	vector<Point2d> SampledPoints;
+	//vector<Point2d> SampledPoints;
 };
 
 class Optimizer
 {
 public:
 	Optimizer();
-	Optimizer(int _n_boards, Mat _intrinsic_Mat);
+	Optimizer(int _n_boards, Mat _intrinsic_mat, Mat _distortion_mat = Mat::zeros(5, 1, CV_64F));
 	~Optimizer();
 	
 	int n_boards;	// number of boards, should know in advance
@@ -38,9 +36,11 @@ public:
 	int total_iter;
 	int current_iter;
 	Mat intrinsic_mat;	// camera intrinsic matrix
+	Mat distortion_mat;	// camera distortion matrix
 	vector<CamView> camera_views;	// holder of all camera view data
 	vector<Mat> relative_mat;	// transform matrices from main board to other boards
 	vector<string> mat_label;
+	vector<Size> board_sizes;
 
 	void initialize();
 	void optimize(int max_iter = 100);

@@ -6,11 +6,11 @@ Optimizer::Optimizer()
 {
 }
 
-Optimizer::Optimizer(int _n_boards, Mat _intrinsic_Mat):
-	n_boards(_n_boards),intrinsic_mat(_intrinsic_Mat)
+Optimizer::Optimizer(int _n_boards, Mat _intrinsic_mat, Mat _distortion_mat):
+	n_boards(_n_boards),intrinsic_mat(_intrinsic_mat), distortion_mat(_distortion_mat)
 {
-
 }
+
 Optimizer::~Optimizer()
 {
 }
@@ -18,18 +18,52 @@ Optimizer::~Optimizer()
 void Optimizer::initialize()
 {
 	// initialize relative transform matrices
+	int *board_freq = new int[n_boards];
+	int max_freq = 0;
+	main_board = -1;
+	memset(board_freq, 0, sizeof(board_freq));
 	for (int i_board = 0; i_board < n_boards; i_board++)
 	{
-		if (i_board == main_board)
-		{
-			relative_mat.push_back(Mat::eye(4, 4, CV_64F));
-		}
-		else {
-			relative_mat.push_back(Mat::zeros(4, 4, CV_64F));
-		}
+		// initialize relative matrices
+		relative_mat.push_back(Mat::eye(4, 4, CV_64F));
 		stringstream cur_label;
 		cur_label << "Transmat" << i_board;
 		mat_label.push_back(cur_label.str());
+		for (int i_view = 0; i_view < camera_views.size(); i_view++)
+		{
+			// if this board is FULLY detected under this view then use it
+			if (camera_views[i_view].ImagePoints[i_board].size() > 0 &&
+				camera_views[i_view].ImagePoints[i_board].size() ==
+				camera_views[i_view].ObjectPoints[i_board].size())
+			{
+				board_freq[i_board]++;
+				// solve extrinsic camera parameters of this board in this picture
+				Mat rvec(3, 1, CV_64F);
+				Mat tvec(3, 1, CV_64F);
+
+				solvePnP(camera_views[i_view].ObjectPoints[i_board], 
+					camera_views[i_view].ImagePoints[i_board], 
+					intrinsic_mat, distortion_mat, rvec, tvec);
+				// compute the camera coordinate relative to this chessboard and push to stack
+				Mat R;
+				Rodrigues(rvec, R); // R is 3x3
+				Mat RT, RT_full;
+				hconcat(R, tvec, RT);
+				Mat bottom = Mat::zeros(1, 4, CV_64F);
+				bottom.at<double>(0, 3) = 1;
+				vconcat(RT, bottom, RT_full);
+				camera_views[i_view].extrinsic_mat.push_back(RT_full);
+			}
+			else
+			{	// assign it an empty Matrix as position holder
+				camera_views[i_view].extrinsic_mat.push_back(Mat::zeros(1, 4, CV_64F));
+			}
+		}
+		if (max_freq < board_freq[i_board])
+		{
+			max_freq = board_freq[i_board];
+			main_board = i_board;
+		}
 	}
 
 	for (int i_board = 0; i_board < n_boards; i_board++)
@@ -38,82 +72,43 @@ void Optimizer::initialize()
 		vector<Mat> A_buf, B_buf;
 		for (int i_view = 0; i_view < camera_views.size(); i_view++)
 		{
-			int main_index = camera_views[i_view].board_index[main_board];
-			if (main_index < 0) continue;
+			// check whether the main board can be detected in this view
+			if (camera_views[i_view].ImagePoints[main_board].size() <= 0) continue;
 			camera_views[i_view].main_extrinsic_mat =
-				camera_views[i_view].extrinsic_mat[main_index];
-			int cur_board_index = camera_views[i_view].board_index[i_board];
-			if (cur_board_index < 0) continue;
+				camera_views[i_view].extrinsic_mat[main_board];
+			// see if this board can be detected in this view
+			if (camera_views[i_view].ImagePoints[i_board].size() <= 0 ||
+				camera_views[i_view].ImagePoints[i_board].size() !=
+				camera_views[i_view].ObjectPoints[i_board].size()) continue;
 			A_buf.push_back(camera_views[i_view].main_extrinsic_mat);
-			B_buf.push_back(camera_views[i_view].extrinsic_mat[cur_board_index]);
+			B_buf.push_back(camera_views[i_view].extrinsic_mat[i_board]);
 		}
 		Mat A, B, x;
 		vconcat(A_buf, A);
 		vconcat(B_buf, B);
+		// use least square to intialize relative matrices
 		solve(A, B, x, DECOMP_SVD);
 		relative_mat[i_board] = x;
-	}
-	
-
-	// use the average for relative transform matrices; assign main extrinsic for each frame
-	/*
-	int *per_board_cnt = new int[n_boards];
-	memset(per_board_cnt, 0, sizeof(int)*n_boards);
-	
-	for (int i_view = 0; i_view < camera_views.size(); i_view++)
-	{
-		int main_index = camera_views[i_view].board_index[main_board];
-		if (main_index < 0) continue;
-		camera_views[i_view].main_extrinsic_mat = 
-			camera_views[i_view].extrinsic_mat[main_index];
-		for (int i_board = 0; i_board < n_boards; i_board++)
-		{
-			if (i_board == main_board) continue;
-			int cur_board_index = camera_views[i_view].board_index[i_board];
-			if (cur_board_index < 0) continue;
-			Mat transmat = camera_views[i_view].main_extrinsic_mat.inv() * camera_views[i_view].extrinsic_mat[cur_board_index];
-
-			relative_mat[i_board] = relative_mat[i_board] + transmat;
-			per_board_cnt[i_board]++;
-		}
-	}
-	
-	for (int i_board = 0; i_board < n_boards; i_board++)
-	{
-		if (i_board == main_board) continue;
-		relative_mat[i_board] *= (1.0 / per_board_cnt[i_board]);
-		double noise = 0;
-		for (int j = 0; j < 3; j++) {
-			for (int k = 0; k < 3; k++)
-			{
-				//relative_mat[i_board].at<double>(j, k) += noise;
-			}
-			relative_mat[i_board].at<double>(j, 3) += noise;
-		}
-		orthogonalize_transform(relative_mat[i_board]);
-	}
-	*/
+	}	
 	
 	// for those frames in which the main board is invisible, recover one
-	// this module needs correction
+	// in fact, we are not using the estimation currently
 	for (int i_view = 0; i_view < camera_views.size(); i_view++)
 	{
-		int main_index = camera_views[i_view].board_index[main_board];
-		if (main_index >= 0) continue;
+		if (camera_views[i_view].ImagePoints[main_board].size() > 0) continue;
+		// if main board in this view is invisible
 		Mat estimator = Mat::zeros(4, 4, CV_64F);
 		int cnt = 0;
 		for (int i_board = 0; i_board < n_boards; i_board++)
 		{
-			int cur_board_index = camera_views[i_view].board_index[i_board];
-			if (cur_board_index < 0 || i_board == main_board) continue;
-			gemm(camera_views[i_view].extrinsic_mat[cur_board_index], relative_mat[i_board].inv(),
+			if (camera_views[i_view].ImagePoints[i_board].size() <= 0 
+				|| i_board == main_board) continue;
+			gemm(camera_views[i_view].extrinsic_mat[i_board], relative_mat[i_board].inv(),
 				1.0, estimator, 1.0, estimator);
 			cnt++;
 		}
-		assert(cnt != 0);
-		camera_views[i_view].main_extrinsic_mat = estimator * (1.0 / cnt);
+		if (cnt > 0) camera_views[i_view].main_extrinsic_mat = estimator * (1.0 / cnt);
 	}
-	
 }
 
 double Optimizer::get_temperature()
@@ -129,7 +124,7 @@ void Optimizer::optimize(int max_iter)
 	initialize();
 	cout << "finish initialization..." << endl;
 	closeup();
-	visualize("list.txt");
+	visualize("pic_list.txt");
 	//waitKey(0);
 	total_iter = max_iter;
 	for (current_iter = 0; current_iter < max_iter; current_iter++)
@@ -143,10 +138,9 @@ void Optimizer::optimize(int max_iter)
 		//visualize("list.txt");
 		//waitKey(0);
 		update_relative();
-
 		if (current_iter % 100 == 0) {
 			closeup();
-			visualize("list.txt");
+			visualize("pic_list.txt");
 		}
 		//waitKey(0);
 	}
@@ -160,9 +154,11 @@ void Optimizer::closeup()
 	{
 		for (int i_board = 0; i_board < n_boards; i_board++)
 		{
-			int cur_board_index = camera_views[i_view].board_index[i_board];
-			if (cur_board_index < 0) continue;
-			camera_views[i_view].extrinsic_mat[cur_board_index] = 
+			if (camera_views[i_view].ImagePoints[i_board].size() <= 0 ||
+				camera_views[i_view].ImagePoints[i_board].size() !=
+				camera_views[i_view].ObjectPoints[i_board].size() ||
+				camera_views[i_view].ImagePoints[main_board].size() <= 0) continue;
+			camera_views[i_view].extrinsic_mat[i_board] = 
 				camera_views[i_view].main_extrinsic_mat * relative_mat[i_board];
 		}
 	}
@@ -172,49 +168,44 @@ void Optimizer::visualize(char *imgpath)
 {
 	FILE *fin;
 	fin = fopen(imgpath, "r");
-	int n_view = camera_views.size();
+	int n_views = -1;
+	fscanf(fin, "%d", &n_views);
 	char picname[MAX_LEN];
-	for (int i_view = 0; i_view < n_view; i_view++)
+	for (int i_view = 0; i_view < n_views; i_view++)
 	{		
-		sprintf(picname, "picture %d", i_view);
 		fscanf(fin, "%s", &picname); 
-		//cout << "reading image " << picname << endl;
 		Mat view = imread(picname);
 		vector<double> reprojErrors_pic;
 		for (int i_board = 0; i_board < n_boards; i_board++)
 		{
-			int cur_board_index = camera_views[i_view].board_index[i_board];
-			//cout << i_board << " has index " << cur_board_index << endl;
-			if (cur_board_index < 0) continue;
-			Mat cur_extrinsic = camera_views[i_view].extrinsic_mat[cur_board_index];
+			if (camera_views[i_view].ImagePoints[i_board].size() <= 0 ||
+				camera_views[i_view].ImagePoints[i_board].size() !=
+				camera_views[i_view].ObjectPoints[i_board].size())	continue;
+			
+			Mat cur_extrinsic = camera_views[i_view].extrinsic_mat[i_board];
 			Mat reprojTvec, reprojRvec;
 			Rodrigues(cur_extrinsic(Rect(0, 0, 3, 3)), reprojRvec);
 			reprojTvec = cur_extrinsic(Rect(3, 0, 1, 3));
 			vector<Point2d> reprojectedPoints; 
-			double reprojError = computeReprojectionErrors(camera_views[i_view].ObjectPoints[cur_board_index],
-				camera_views[i_view].ImagePoints[cur_board_index],
-				reprojRvec, reprojTvec, intrinsic_mat, Mat::zeros(1,5,CV_64F), reprojectedPoints);
+			double reprojError = computeReprojectionErrors(camera_views[i_view].ObjectPoints[i_board],
+				camera_views[i_view].ImagePoints[i_board], reprojRvec, reprojTvec, intrinsic_mat, 
+				distortion_mat, reprojectedPoints);
 			reprojErrors_pic.push_back(reprojError);
 			//cout << "reprojected points:" << reprojectedPoints.size() <<
 			//	" board size:" << camera_views[i_view].board_sizes[cur_board_index] << endl;
 			vector<Point2f> drawnPoints;
 			Mat(reprojectedPoints).convertTo(drawnPoints, Mat(drawnPoints).type());
-			drawChessboardCorners(view, camera_views[i_view].board_sizes[cur_board_index], drawnPoints, true);			
+			drawChessboardCorners(view, board_sizes[i_board], drawnPoints, true);
 		}
 		/*
 		for (int i_sample = 0; i_sample < camera_views[i_view].SampledPoints.size(); i_sample++)
 		{
 			circle(view, camera_views[i_view].SampledPoints[i_sample], 10, Scalar(0, 0, 255), 2);
 		}*/
-		sprintf(picname, "optimized%d.png", i_view);
-		//cout << "writing " << picname << endl;
-		//namedWindow("preview", CV_WINDOW_NORMAL);
 		Mat small_view;
 		resize(view, small_view, Size(0, 0), 0.5, 0.5);
 		//imshow(picname, small_view);
-		
-		//imwrite(picname, view);		
-		sprintf(picname, "iterations/iter%d.png", i_view, current_iter);
+		sprintf(picname, "iterations/pic%diter%d.png", i_view, current_iter);
 		if (WRITE_IMAGE) {
 			if (current_iter != total_iter)
 			{
@@ -223,8 +214,7 @@ void Optimizer::visualize(char *imgpath)
 			else {
 				imwrite(picname, view);
 			}
-		}
-		
+		}		
 		//cout << "reprojection error of view " << i_view << ":" << endl;
 		for (int iter = 0; iter < reprojErrors_pic.size(); iter++)
 		{
@@ -232,6 +222,7 @@ void Optimizer::visualize(char *imgpath)
 		}
 		cout << endl;
 	}
+	fclose(fin);
 }
 
 double Optimizer::computeReprojectionErrors(const vector<Point3d>& objectPoints,
@@ -358,20 +349,21 @@ void Optimizer::update_main()
 		vector<double> residuals;
 		for (int i_board = 0; i_board < n_boards; i_board++)
 		{
-			int index = current_view.board_index[i_board];
-			if (index < 0) continue;	// if some board is not detected in this view then skip it
-			for (int i_point = 0; i_point < current_view.ImagePoints[index].size(); i_point+=10)
+			if (camera_views[i_view].ImagePoints[i_board].size() <= 0 ||
+				camera_views[i_view].ImagePoints[i_board].size() !=
+				camera_views[i_view].ObjectPoints[i_board].size()) continue;	// if some board is not detected in this view then skip it
+			for (int i_point = 0; i_point < current_view.ImagePoints[i_board].size(); i_point++)
 			{
-				int w = current_view.board_sizes[index].width;
-				int h = current_view.board_sizes[index].height;
-				/*if (!(i_point == 0 ||
+				/*int w = board_sizes[index].width;
+				int h = board_sizes[index].height;
+				if (!(i_point == 0 ||
 					i_point < 10 ||
 					i_point == h - 1 ||
 					i_point == (w - 1)*h ||
 					i_point == w*h - 1)) continue;*/
 				double residual;
-				Jacobi_rows.push_back(compute_Jacobian_main(current_view.ObjectPoints[index][i_point],
-					current_view.ImagePoints[index][i_point], current_view.main_extrinsic_mat, 
+				Jacobi_rows.push_back(compute_Jacobian_main(current_view.ObjectPoints[i_board][i_point],
+					current_view.ImagePoints[i_board][i_point], current_view.main_extrinsic_mat, 
 					relative_mat[i_board], residual));
 				residuals.push_back(residual);
 			}
@@ -484,21 +476,22 @@ void Optimizer::update_relative()
 		for (int i_view = 0; i_view < n_view; i_view++)
 		{
 			CamView &current_view = camera_views[i_view];
-			int index = current_view.board_index[i_board];
-			if (index < 0) continue;	// if some board is not detected in this view then skip it
-			for (int i_point = 0; i_point < current_view.ImagePoints[index].size(); i_point++)
+			if (camera_views[i_view].ImagePoints[i_board].size() <= 0 ||
+				camera_views[i_view].ImagePoints[i_board].size() !=
+				camera_views[i_view].ObjectPoints[i_board].size()) continue;	// if this board is not detected in this view then skip it
+			for (int i_point = 0; i_point < current_view.ImagePoints[i_board].size(); i_point++)
 			{
-				int w = current_view.board_sizes[index].width;
-				int h = current_view.board_sizes[index].height;
-				/*if (!(i_point == 0 ||
+				/*int w = board_sizes[index].width;
+				int h = board_sizes[index].height;
+				if (!(i_point == 0 ||
 					i_point < 0 ||
 					i_point == h - 1 ||
 					i_point == (w - 1)*h ||
-					i_point == w*h - 1)) continue;*/
-				current_view.SampledPoints.push_back(current_view.ImagePoints[index][i_point]);
+					i_point == w*h - 1)) continue;
+				current_view.SampledPoints.push_back(current_view.ImagePoints[index][i_point]);*/
 				double residual;
-				Jacobi_rows.push_back(compute_Jacobian_relative(current_view.ObjectPoints[index][i_point],
-					current_view.ImagePoints[index][i_point], current_view.main_extrinsic_mat,
+				Jacobi_rows.push_back(compute_Jacobian_relative(current_view.ObjectPoints[i_board][i_point],
+					current_view.ImagePoints[i_board][i_point], current_view.main_extrinsic_mat,
 					relative_mat[i_board], residual));
 				residuals.push_back(residual);
 			}
