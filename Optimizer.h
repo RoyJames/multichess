@@ -9,7 +9,7 @@
 #include <opencv2/imgproc/imgproc.hpp>
 
 #define MAX_LEN 100
-#define WRITE_IMAGE 0
+#define WRITE_IMAGE 1
 
 
 using namespace cv;

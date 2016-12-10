@@ -16,10 +16,11 @@
 using namespace cv;
 using namespace std;
 
-#define SOLVECHESS 1
-#define SOLVERICOH 0
+
 #define UNDISTORT 0
 #define DETECT_CORNER 0
+#define SOLVECHESS 0
+#define SOLVERICOH 1
 
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
@@ -155,9 +156,10 @@ int main(int argc, char *argv[])
 	distCoeffs.at<double>(0) = -0.37077668666130514;
 	distCoeffs.at<double>(1) = 8.0453921321123243;
 	distCoeffs.at<double>(4) = 0.11371622504317971;
-	FILE *fin;
 	fin = fopen(imgpath, "r");
-	for (int i_view = 0; i_view < 11; i_view++)
+	int n_pic = -1;
+	fscanf(fin, "%d", &n_pic);
+	for (int i_view = 0; i_view < n_pic; i_view++)
 	{
 		char picname[MAX_LEN];
 		sprintf(picname, "picture %d", i_view);
@@ -172,6 +174,7 @@ int main(int argc, char *argv[])
 		imwrite(picname, rectified);
 		cout << "undistorted view " << i_view << ":" << endl;
 	}
+	fclose(fin);
 	exit(1);
 #endif
 
@@ -212,12 +215,12 @@ int main(int argc, char *argv[])
 				if (!patternfound)
 				{
 					cout << "search ROI failed, running full search" << endl;
-
 				}
 			}
 			if (!patternfound)
 			{
-				patternfound = findChessboardCorners(gray, patternSizes[i_board], corners);
+				patternfound = findChessboardCorners(gray, patternSizes[i_board], corners,
+					CV_CALIB_CB_ADAPTIVE_THRESH + CV_CALIB_CB_NORMALIZE_IMAGE);
 			}
 
 			if (patternfound)
@@ -296,73 +299,31 @@ int main(int argc, char *argv[])
 #endif
 
 #if SOLVERICOH	
-	MapLocator *RicohLocator = new MapLocator(n_boards, 2688, true);
-	sprintf(command, "load('ricoh.mat');");
-	engEvalString(ep, command);
+	char* envmap_path = argv[3];
+	Mat envmap = imread(envmap_path);
+	Mat gray_map;
+	cvtColor(envmap, gray_map, CV_BGR2GRAY);
+	MapLocator *RicohLocator = new MapLocator(n_boards, envmap.rows, true);
 
-	mxArray *chessboard = engGetVariable(ep, "chessboard");
-	mxArray *corner = engGetVariable(ep, "corner");
-	mxArray *point_coords = mxGetField(corner, 0, "p");
-	double *coord_table = mxGetPr(point_coords);
-	int table_offset = mxGetM(point_coords);
-	RicohLocator->board_index = new int[n_boards];
+	RicohLocator->relative_mat = optimizer->relative_mat;
+	RicohLocator->board_sizes = patternSizes;
 	for (int i_board = 0; i_board < n_boards; i_board++)
-	{
-		//RicohLocator->relative_mat.push_back(optimizer->relative_mat[i_board]);
-		RicohLocator->relative_mat = optimizer->relative_mat;
-		RicohLocator->board_index[i_board] = -1;
-	}
-	int cur_n_board = mxGetN(chessboard);
-	for (int i_board = 0; i_board < cur_n_board; i_board++)
 	{
 		vector<Point2d> imagePoints;
 		vector<Point3d> objectPoints;
-
-		mxArray *board_i = mxGetCell(chessboard, (mwIndex)i_board);
-		int row = mxGetM(board_i);
-		int col = mxGetN(board_i);
-		double *board_ids = mxGetPr(board_i);
-		//cout << "dimension is " << row << " x " << col << endl;
-		//cout << "board " << i_board << " in picture " << i << " has " << row << " rows and " << col << " columns of inner corners" << endl;
-
-		bool was_detected = false;
-		for (int j_board = 0; j_board < n_boards; j_board++)
-		{
-			Size ref_size = optimizer->camera_views[0].board_sizes[j_board];
-			if ((ref_size.height == row && ref_size.width == col) || 
-				(ref_size.height == col && ref_size.width == row))
-			{
-				RicohLocator->board_index[j_board] = i_board;
-				was_detected = true;
-				break;
-			}
-		}
-		//if (!was_detected) continue;
-
-		for (int r_id = 0; r_id < row; r_id++)
-		{
-			for (int c_id = 0; c_id < col; c_id++)
-			{
-				int index = r_id + c_id * row;	// this is special for Matlab convention
-				int point_id = roundl(board_ids[index]) - 1;	// minus 1 due to 0-start in C++
-				double x = coord_table[point_id];
-				double y = coord_table[point_id + table_offset];
-				imagePoints.push_back(Point2d(x, y));
-			}
-		}
-		//int scaler = row > col ? row : col;	// chessboard_size corresponds to the lengthy edge of your chessboard
-		//objectPoints = generateChessboard3d(row, col, chessboard_size / (scaler + 1));
-		objectPoints = generateChessboard3d(row, col, chessboard_size);
+		findChessboardCorners(gray_map, patternSizes[i_board], 
+			imagePoints, CV_CALIB_CB_ADAPTIVE_THRESH + CV_CALIB_CB_NORMALIZE_IMAGE);
+		objectPoints = generateChessboard3d(patternSizes[i_board].height, 
+			patternSizes[i_board].width, chessboard_size);
 		RicohLocator->ObjectPoints.push_back(objectPoints);
 		RicohLocator->ImagePoints.push_back(imagePoints);
-		RicohLocator->board_sizes.push_back(Size(row, col));
 	}
 	if (RicohLocator->ObjectPoints.empty())
 	{
 		cout << "no valid chessboard in the environment map!" << endl;
 		exit(1);
 	}
-	RicohLocator->optimize(1000);
+	RicohLocator->optimize(500);
 #endif
 
 	return 0;

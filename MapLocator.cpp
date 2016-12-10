@@ -23,17 +23,16 @@ void MapLocator::initialize()
 
 	for (int i_board = 0; i_board < n_boards; i_board++)
 	{
-		int cur_index = board_index[i_board];
-		if (cur_index < 0) continue;
-
-		for (int i_point = 0; i_point < ObjectPoints[cur_index].size(); i_point++)
+		if (ImagePoints[i_board].empty() || 
+			ImagePoints[i_board].size()!= ObjectPoints[i_board].size()) continue;
+		for (int i_point = 0; i_point < ObjectPoints[i_board].size(); i_point++)
 		{
 			//cout << "board " << i_board << ",point " << i_point << ":" << ObjectPoints[cur_index][i_point] << endl;
-			Mat translated = relative_mat[i_board](Rect(0, 0, 3, 3))*Mat(ObjectPoints[cur_index][i_point],CV_64F) + 
+			Mat translated = relative_mat[i_board](Rect(0, 0, 3, 3))*Mat(ObjectPoints[i_board][i_point],CV_64F) +
 				relative_mat[i_board](Rect(3, 0, 1, 3));
-			ObjectPoints[cur_index][i_point].x = translated.at<double>(0);
-			ObjectPoints[cur_index][i_point].y = translated.at<double>(1);
-			ObjectPoints[cur_index][i_point].z = translated.at<double>(2);
+			ObjectPoints[i_board][i_point].x = translated.at<double>(0);
+			ObjectPoints[i_board][i_point].y = translated.at<double>(1);
+			ObjectPoints[i_board][i_point].z = translated.at<double>(2);
 			//cout << "board " << i_board << ",point " << i_point << ":" << ObjectPoints[cur_index][i_point] << endl;
 		}
 	}
@@ -80,7 +79,7 @@ void MapLocator::optimize(int max_iter)
 		update();
 		if (current_iter % 50 == 0) {
 			closeup();
-			visualize("C:/Users/jo/Desktop/ricoh_cali/chessroom.jpg");
+			visualize("envmap.jpg");
 		}
 		//waitKey(0);
 	}
@@ -100,17 +99,17 @@ void MapLocator::visualize(char *imgpath)
 	Mat view = imread(imgpath);
 	for (int i_board = 0; i_board < n_boards; i_board++)
 	{
-		int cur_board_index = board_index[i_board];
-		if (cur_board_index < 0) continue;
+		if (ImagePoints[i_board].empty() ||
+			ImagePoints[i_board].size() != ObjectPoints[i_board].size()) continue;
 		vector<Point2f> drawnPoints;
-		Mat(ReprojImagePoints[cur_board_index]).convertTo(drawnPoints, Mat(drawnPoints).type());
-		drawChessboardCorners(view, board_sizes[cur_board_index], drawnPoints, true);
+		Mat(ReprojImagePoints[i_board]).convertTo(drawnPoints, Mat(drawnPoints).type());
+		drawChessboardCorners(view, board_sizes[i_board], drawnPoints, true);
 
-		Mat(ImagePoints[cur_board_index]).convertTo(drawnPoints, Mat(drawnPoints).type());
-		drawChessboardCorners(view, board_sizes[cur_board_index], drawnPoints, true);
+		Mat(ImagePoints[i_board]).convertTo(drawnPoints, Mat(drawnPoints).type());
+		drawChessboardCorners(view, board_sizes[i_board], drawnPoints, true);
 	}
 	stringstream cur_label;
-	cur_label << "iterations/iter" << current_iter << ".png";
+	cur_label << "iterations/envmap_iter" << current_iter << ".png";
 
 	Mat small_view;
 	resize(view, small_view, Size(0, 0), 0.5, 0.5);
@@ -242,20 +241,20 @@ void MapLocator::update()
 	{
 		vector<Mat> Jacobi_rows;
 		vector<double> residuals;	
-		int index = board_index[i_board];
-		if (index < 0) continue;	// if some board is not detected in this view then skip it
-		for (int i_point = 0; i_point < ImagePoints[index].size(); i_point++)
+		if (ImagePoints[i_board].empty() ||
+			ImagePoints[i_board].size() != ObjectPoints[i_board].size()) continue;	// if some board is not detected in this view then skip it
+		for (int i_point = 0; i_point < ImagePoints[i_board].size(); i_point++)
 		{
-			int w = board_sizes[index].width;
-			int h = board_sizes[index].height;
+			int w = board_sizes[i_board].width;
+			int h = board_sizes[i_board].height;
 			/*if (!(i_point == 0 ||
 			i_point < 0 ||
 			i_point == h - 1 ||
 			i_point == (w - 1)*h ||
 			i_point == w*h - 1)) continue;*/
 			double residual;
-			Jacobi_rows.push_back(compute_Jacobian(ObjectPoints[index][i_point],
-				ImagePoints[index][i_point], ReprojImagePoints[index][i_point], residual));
+			Jacobi_rows.push_back(compute_Jacobian(ObjectPoints[i_board][i_point],
+				ImagePoints[i_board][i_point], ReprojImagePoints[i_board][i_point], residual));
 			residuals.push_back(residual);
 		}
 		Mat Jacobi_full, x;
@@ -272,7 +271,7 @@ void MapLocator::update()
 		if (is_log_on)
 		{ 
 			logFile.open("IterationLog.csv", ios::app | ios::out);
-			logFile << current_iter << "," << index << "," << norm(Jacobi_full) <<
+			logFile << current_iter << "," << i_board << "," << norm(Jacobi_full) <<
 				"," << norm(x) << "," << get_temperature() << "," << norm(residuals) << endl;
 			logFile.close();
 		}

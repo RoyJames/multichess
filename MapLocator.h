@@ -28,7 +28,6 @@ public:
 	int LL_height;
 	bool is_log_on;
 
-	int *board_index;
 	vector<vector<Point2d> > ImagePoints;
 	vector<vector<Point2d> > ReprojImagePoints;
 	vector<vector<Point3d> > ObjectPoints;
