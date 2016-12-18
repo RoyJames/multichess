@@ -14,12 +14,110 @@ MapLocator::~MapLocator()
 {
 }
 
+void MapLocator::drawAxis(Mat &img, int board_id)
+{
+	int axis_len = 4;
+	int w = board_sizes[board_id].width;
+	int h = board_sizes[board_id].height;
+	Point2d origin = ImagePoints[board_id][0];
+	Point2d x_end = ImagePoints[board_id][axis_len];
+	Point2d y_end = ImagePoints[board_id][axis_len * w];
+
+	line(img, origin, x_end, Scalar(0, 0, 255), 5);	// draw x axis
+	line(img, origin, y_end, Scalar(0, 255, 0), 5);	// draw y axis
+}
+
+void MapLocator::mannual()
+{
+	initialize();
+	namedWindow("LL View");
+	Mat view = imread("chessroom.jpg");
+	for (int i_board = 0; i_board < n_boards; i_board++)
+	{
+		if (ImagePoints[i_board].empty() ||
+			ImagePoints[i_board].size() != ObjectPoints[i_board].size()) continue;
+		vector<Point2f> drawnPoints;
+		Mat(ImagePoints[i_board]).convertTo(drawnPoints, Mat(drawnPoints).type());
+		drawChessboardCorners(view, board_sizes[i_board], drawnPoints, true);
+	}
+
+	double d0 = 0.01;
+	double d1 = 0.01;
+	while (true)
+	{
+		Mat updated_view = view.clone();
+		vector<Point2f> drawnPoints;
+		for (int i_board = 0; i_board < n_boards; i_board++)
+		{
+			Mat(ReprojImagePoints[i_board]).convertTo(drawnPoints, Mat(drawnPoints).type());
+			drawChessboardCorners(updated_view, board_sizes[i_board], drawnPoints, true);
+		}
+		Mat small_view;
+		resize(updated_view, small_view, Size(0, 0), 0.25, 0.25);
+		imshow("LL View", small_view);
+		double x, y, z, a, b, c;
+		x = y = z = a = b = c = 0;
+		while (true)
+		{
+			int key = waitKey();
+			cout << key;
+			if (key == '\r') break;
+			switch (key) 
+			{
+			case 'w':b += d0; break;
+			case 's':b -= d0; break;
+			case 'a':a += d0; break;
+			case 'd':a -= d0; break;
+			case 'z':c += d0; break;
+			case 'c':c -= d0; break;
+			case '8':x += d1; break;
+			case '2':x -= d1; break;
+			case '4':y += d1; break;
+			case '6':y -= d1; break;
+			case '1':z += d1; break;
+			case '3':z -= d1; break;
+			default:
+				break;
+			}
+		}
+		cout << "eta updated" << endl;
+		double incremental_buffer[16] = {
+			cos(y)*cos(z),						cos(y)*sin(z),						-sin(y),	a,
+			sin(x)*sin(y)*cos(z)-cos(x)*sin(z), sin(x)*sin(y)*sin(z)+cos(x)*cos(z), sin(x)*cos(y), b,
+			cos(x)*sin(y)*cos(z)+sin(x)*sin(z), cos(x)*sin(y)*sin(z)-sin(x)*cos(z), cos(x)*cos(y), c,
+			0, 0, 0, 1
+		};
+		Mat eta_mat(4, 4, CV_64F, incremental_buffer);
+		gemm(eta_mat, main2sphere, 1.0, NULL, 0, main2sphere);
+		orthogonalize_transform(main2sphere);
+
+		double tot_err = 0;
+		int tot_n = 0;
+		for (int i_board = 0; i_board < n_boards; i_board++)
+		{
+			vector<Mat> Jacobi_rows;
+			vector<double> residuals;
+			if (ImagePoints[i_board].empty() ||
+				ImagePoints[i_board].size() != ObjectPoints[i_board].size()) continue;	// if some board is not detected in this view then skip it
+			for (int i_point = 0; i_point < ImagePoints[i_board].size(); i_point++)
+			{
+				double residual;
+				Jacobi_rows.push_back(compute_Jacobian(ObjectPoints[i_board][i_point],
+					ImagePoints[i_board][i_point], ReprojImagePoints[i_board][i_point], residual));
+				residuals.push_back(residual);
+			}
+			tot_err += norm(residuals);
+			tot_n += residuals.size();
+		}
+		cout << "total reprojection error: " << tot_err / sqrt(tot_n) << endl;
+	}
+}
+
 void MapLocator::initialize()
 {
 	// what is a good initial guess?
 	main2sphere = Mat::eye(4, 4, CV_64F);
-	main2sphere.at<double>(2, 2) = -1;
-	main2sphere.at<double>(2, 3) = -0.2;
+	main2sphere.at<double>(0, 3) = -0.1;
 
 	for (int i_board = 0; i_board < n_boards; i_board++)
 	{
@@ -48,8 +146,8 @@ void MapLocator::initialize()
 double MapLocator::get_temperature()
 {
 	//return (double)(total_iter - current_iter) / total_iter;
-	if (current_iter > 100) return 1.0 / (current_iter*5 + 1);
-	return 1.0 / (current_iter + 1);
+	//if (current_iter > 100) return 1.0 / (current_iter*5 + 1);
+	//return 1.0 / (sqrt(current_iter) + 1);
 	if (current_iter < 100)
 	{
 		return 0.1;
@@ -69,19 +167,12 @@ void MapLocator::optimize(int max_iter)
 	for (current_iter = 0; current_iter < max_iter; current_iter++)
 	{
 		cout << "iteration " << current_iter + 1 << endl;
-		//for (int sub_iter = 0; sub_iter < ALTERNATE_INTERVAL; sub_iter++)
-		//{
-		//	update_main();
-		//}
-		//closeup();
-		//visualize("list.txt");
-		//waitKey(0);
 		update();
 		if (current_iter % 50 == 0) {
 			closeup();
-			visualize("envmap.jpg");
+			visualize("chessroom.jpg");
 		}
-		//waitKey(0);
+		//exit(1);
 	}
 	closeup();
 }
@@ -107,9 +198,11 @@ void MapLocator::visualize(char *imgpath)
 
 		Mat(ImagePoints[i_board]).convertTo(drawnPoints, Mat(drawnPoints).type());
 		drawChessboardCorners(view, board_sizes[i_board], drawnPoints, true);
+
+		drawAxis(view, i_board);
 	}
 	stringstream cur_label;
-	cur_label << "iterations/envmap_iter" << current_iter << ".png";
+	cur_label << "iterations/chessroom_iter" << current_iter << ".png";
 
 	Mat small_view;
 	resize(view, small_view, Size(0, 0), 0.5, 0.5);
@@ -144,7 +237,6 @@ Mat MapLocator::solve_increment(const Mat &Jr, const Mat &r, Mat &x)
 		0, 0, 0, 1
 	};
 	Mat incremental(4, 4, CV_64F, incremental_buffer);
-	//cout << "code 1 debugger" << endl;
 	//printMat(incremental);
 	//orthogonalize_transform(incremental);
 	return incremental.clone();
@@ -187,11 +279,12 @@ Mat MapLocator::compute_Jacobian(const Point3d &p, const Point2d &M, Point2d &pr
 	double scaler = LL_height / PI;
 	double J_u_buffer[6] = {
 		-z / (x*x + z*z) * scaler, 0, x / (x*x + z*z) * scaler,
-		0, 1.0 / sqrt(1 - y*y) * scaler, 0	// pay attention to the sign of dy
+		0, -1.0 / sqrt(1 - y*y) * scaler, 0	// pay attention to the sign of dy
 	};
 	Mat J_u = Mat(2, 3, CV_64F, J_u_buffer);
 	double u = (1 + atan2(x, -z) / PI)*LL_height;
-	double v = (1 - acos(y) / PI)*LL_height;	// pay attention to the sign of y
+	//double v = (1 - acos(y) / PI)*LL_height;	// pay attention to the sign of y
+	double v = (acos(y) / PI)*LL_height;
 	projected = Point2d(u, v);
 
 	// 4. Jacobian of r()
@@ -247,11 +340,6 @@ void MapLocator::update()
 		{
 			int w = board_sizes[i_board].width;
 			int h = board_sizes[i_board].height;
-			/*if (!(i_point == 0 ||
-			i_point < 0 ||
-			i_point == h - 1 ||
-			i_point == (w - 1)*h ||
-			i_point == w*h - 1)) continue;*/
 			double residual;
 			Jacobi_rows.push_back(compute_Jacobian(ObjectPoints[i_board][i_point],
 				ImagePoints[i_board][i_point], ReprojImagePoints[i_board][i_point], residual));

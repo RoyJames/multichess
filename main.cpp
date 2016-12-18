@@ -22,11 +22,11 @@ using namespace std;
 #define SOLVECHESS 0
 #define SOLVERICOH 1
 
+
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX_LEN 1000
 #define SEARCH_SCALE 2.5
-const double chessboard_size = 0.005;	// check this parameter with your render scene
 float resolution = 1024;
 
 vector<Point3d> generateChessboard3d(int row, int col, double edge)
@@ -51,9 +51,9 @@ double dist3d(Point3d A, Point3d B)
 void help()
 {
 	cout << "Input format:"
-		<< "[name of the mat file (including .mat)]"
-		<< "[list of picture paths]"
-		<< "[number of chessboards used]"
+		<< "[imagelist path]"
+		<< "[chessboard sizes]"
+		<< "[envmap path]"
 		<< endl;
 }
 
@@ -253,15 +253,11 @@ int main(int argc, char *argv[])
 	}
 	fs_corners.release();
 #else
+	cout << "Read corners from file..." << endl;
 	FileStorage fs_corners("corners.yml", FileStorage::READ);
 	for (int i_view = 0; i_view < n_views; i_view++)
 	{
 		CamView current_view;
-		/*
-		char picname[MAX_LEN];
-		fscanf(fin, "%s", &picname);
-		Mat view = imread(picname);
-		*/
 		for (int i_board = 0; i_board < n_boards; i_board++)
 		{
 			char store_name[MAX_LEN];
@@ -271,11 +267,12 @@ int main(int argc, char *argv[])
 			current_view.ImagePoints.push_back(temp);
 			current_view.ObjectPoints.push_back(
 				generateChessboard3d(patternSizes[i_board].height, 
-					patternSizes[i_board].width, chessboard_size));
+					patternSizes[i_board].width, CHESSBOARD_SIZE));
 		}
 		optimizer->camera_views.push_back(current_view);
 	}
 	fs_corners.release();
+	cout << "Finish reading corners." << endl;
 #endif
 	fclose(fin);
 
@@ -285,17 +282,24 @@ int main(int argc, char *argv[])
 	FileStorage fs("camerapos.yml", FileStorage::WRITE);
 	for (int i_board = 0; i_board < n_boards; i_board++)
 	{
-		fs << optimizer->mat_label[i_board] << optimizer->relative_mat[i_board];
+		stringstream cur_label;
+		cur_label << "Transmat" << i_board;
+		fs << cur_label.str() << optimizer->relative_mat[i_board];
 	}
 	fs.release();
 #else
+	cout << "Read transform matrices from file..." << endl;
 	optimizer->initialize();
 	FileStorage fs("camerapos.yml", FileStorage::READ);
 	for (int i_board = 0; i_board < n_boards; i_board++)
 	{
-		fs[optimizer->mat_label[i_board]] >> optimizer->relative_mat[i_board];
+		stringstream cur_label;
+		cur_label << "Transmat" << i_board;
+		fs[cur_label.str()] >> optimizer->relative_mat[i_board];
 	}
 	fs.release();
+	cout << "Finish reading transform matrices." << endl;
+
 #endif
 
 #if SOLVERICOH	
@@ -309,20 +313,32 @@ int main(int argc, char *argv[])
 	RicohLocator->board_sizes = patternSizes;
 	for (int i_board = 0; i_board < n_boards; i_board++)
 	{
+		cout << "Detecting chessboard " << i_board << endl;
 		vector<Point2d> imagePoints;
 		vector<Point3d> objectPoints;
-		findChessboardCorners(gray_map, patternSizes[i_board], 
+		bool patternfound = false;
+		//if (i_board != 3)
+		patternfound = findChessboardCorners(gray_map, patternSizes[i_board], 
 			imagePoints, CV_CALIB_CB_ADAPTIVE_THRESH + CV_CALIB_CB_NORMALIZE_IMAGE);
+
 		objectPoints = generateChessboard3d(patternSizes[i_board].height, 
-			patternSizes[i_board].width, chessboard_size);
+			patternSizes[i_board].width, CHESSBOARD_SIZE);
 		RicohLocator->ObjectPoints.push_back(objectPoints);
 		RicohLocator->ImagePoints.push_back(imagePoints);
+		if (patternfound)
+		{
+			cout << "Found chessboard " << i_board << endl;
+		}
+		else {
+			cout << "Not found chessboard " << i_board << endl;
+		}
 	}
 	if (RicohLocator->ObjectPoints.empty())
 	{
 		cout << "no valid chessboard in the environment map!" << endl;
 		exit(1);
 	}
+	//RicohLocator->mannual();
 	RicohLocator->optimize(500);
 #endif
 

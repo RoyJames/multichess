@@ -22,13 +22,11 @@ void Optimizer::initialize()
 	int max_freq = 0;
 	main_board = -1;
 	memset(board_freq, 0, sizeof(board_freq));
+
 	for (int i_board = 0; i_board < n_boards; i_board++)
 	{
 		// initialize relative matrices
 		relative_mat.push_back(Mat::eye(4, 4, CV_64F));
-		stringstream cur_label;
-		cur_label << "Transmat" << i_board;
-		mat_label.push_back(cur_label.str());
 		for (int i_view = 0; i_view < camera_views.size(); i_view++)
 		{
 			// if this board is FULLY detected under this view then use it
@@ -123,9 +121,7 @@ void Optimizer::optimize(int max_iter)
 	cout << "start initialization..." << endl;
 	initialize();
 	cout << "finish initialization..." << endl;
-	closeup();
 	visualize("pic_list.txt");
-	//waitKey(0);
 	total_iter = max_iter;
 	for (current_iter = 0; current_iter < max_iter; current_iter++)
 	{
@@ -171,6 +167,7 @@ void Optimizer::visualize(char *imgpath)
 	int n_views = -1;
 	fscanf(fin, "%d", &n_views);
 	char picname[MAX_LEN];
+	FileStorage fs_extrinsic("extrinsics.yml", FileStorage::WRITE);
 	for (int i_view = 0; i_view < n_views; i_view++)
 	{		
 		fscanf(fin, "%s", &picname); 
@@ -181,8 +178,12 @@ void Optimizer::visualize(char *imgpath)
 			if (camera_views[i_view].ImagePoints[i_board].size() <= 0 ||
 				camera_views[i_view].ImagePoints[i_board].size() !=
 				camera_views[i_view].ObjectPoints[i_board].size())	continue;
-			
 			Mat cur_extrinsic = camera_views[i_view].extrinsic_mat[i_board];
+
+			stringstream cur_label;
+			cur_label << "view" << i_view << "ext" << i_board;
+			fs_extrinsic << cur_label.str() << cur_extrinsic;
+
 			Mat reprojTvec, reprojRvec;
 			Rodrigues(cur_extrinsic(Rect(0, 0, 3, 3)), reprojRvec);
 			reprojTvec = cur_extrinsic(Rect(3, 0, 1, 3));
@@ -196,6 +197,8 @@ void Optimizer::visualize(char *imgpath)
 			vector<Point2f> drawnPoints;
 			Mat(reprojectedPoints).convertTo(drawnPoints, Mat(drawnPoints).type());
 			drawChessboardCorners(view, board_sizes[i_board], drawnPoints, true);
+
+			drawAxis(view, reprojRvec, reprojTvec, intrinsic_mat, distortion_mat);
 		}
 		/*
 		for (int i_sample = 0; i_sample < camera_views[i_view].SampledPoints.size(); i_sample++)
@@ -223,6 +226,7 @@ void Optimizer::visualize(char *imgpath)
 		cout << endl;
 	}
 	fclose(fin);
+	fs_extrinsic.release();
 }
 
 double Optimizer::computeReprojectionErrors(const vector<Point3d>& objectPoints,
@@ -240,6 +244,27 @@ double Optimizer::computeReprojectionErrors(const vector<Point3d>& objectPoints,
 	int n = imagePoints.size();
 
 	return std::sqrt(err*err / n);
+}
+
+void Optimizer::drawAxis(Mat &img, const Mat& rvec, const Mat& tvec,
+	const Mat& cameraMatrix, const Mat& distCoeffs)
+{
+	int axis_len = 4;
+	vector<Point3d> axis_control;
+	Point3d origin(0, 0, 0);
+	Point3d x_end(CHESSBOARD_SIZE * axis_len, 0, 0);
+	Point3d y_end(0, CHESSBOARD_SIZE * axis_len, 0);
+	Point3d z_end(0, 0, CHESSBOARD_SIZE * axis_len);
+	axis_control.push_back(origin);
+	axis_control.push_back(x_end);
+	axis_control.push_back(y_end);
+	axis_control.push_back(z_end);
+
+	vector<Point2d> axis_proj;
+	projectPoints(Mat(axis_control), rvec, tvec, cameraMatrix, distCoeffs, axis_proj);
+	line(img, axis_proj[0], axis_proj[1], Scalar(0, 0, 255), 5);	// draw x axis
+	line(img, axis_proj[0], axis_proj[2], Scalar(0, 255, 0), 5);	// draw y axis
+	line(img, axis_proj[0], axis_proj[3], Scalar(255, 0, 0), 5);	// draw z axis
 }
 
 Mat Optimizer::solve_increment(const Mat &Jr, const Mat &r)

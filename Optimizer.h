@@ -10,6 +10,7 @@
 
 #define MAX_LEN 100
 #define WRITE_IMAGE 1
+#define CHESSBOARD_SIZE 0.005	// check this parameter with your render scene
 
 
 using namespace cv;
@@ -39,7 +40,6 @@ public:
 	Mat distortion_mat;	// camera distortion matrix
 	vector<CamView> camera_views;	// holder of all camera view data
 	vector<Mat> relative_mat;	// transform matrices from main board to other boards
-	vector<string> mat_label;
 	vector<Size> board_sizes;
 
 	void initialize();
@@ -53,6 +53,8 @@ public:
 	double computeReprojectionErrors(const vector<Point3d>& objectPoints,
 		const vector<Point2d>& imagePoints, const Mat& rvec, const Mat& tvec,
 		const Mat& cameraMatrix, const Mat& distCoeffs, vector<Point2d>& imagePoints2);
+	void drawAxis(Mat &img, const Mat& rvec, const Mat& tvec,
+		const Mat& cameraMatrix, const Mat& distCoeffs);
 	void closeup();
 	void visualize(char *imgpath);
 	void printMat(const Mat &target);

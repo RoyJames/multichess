@@ -37,11 +37,13 @@ public:
 	ofstream logFile;
 
 	void initialize();
+	void mannual();
 	void optimize(int max_iter = 100);
 	void update();
 	double get_temperature();
 	Mat compute_Jacobian(const Point3d &p, const Point2d &M, Point2d &projected, double &residual);
 	Mat solve_increment(const Mat &Jr, const Mat &r, Mat &x);
+	void drawAxis(Mat &img, int board_id);
 	void closeup();
 	void visualize(char *imgpath);
 	void printMat(const Mat &target);
